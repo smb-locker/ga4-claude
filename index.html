@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -524,10 +523,28 @@ function useSuggestion(el) {
 async function queryGA4(config) {
   const pid = document.getElementById('property-input').value.trim();
   if (!pid) throw new Error('Introduce tu Property ID de GA4 (solo números).');
+
+  // Normalize dimensions and metrics to GA4 API object format
+  const normalized = {
+    ...config,
+    dimensions: (config.dimensions || []).map(d =>
+      typeof d === 'string' ? { name: d } : d
+    ),
+    metrics: (config.metrics || []).map(m =>
+      typeof m === 'string' ? { name: m } : m
+    ),
+    orderBys: (config.orderBys || []).map(o => {
+      if (typeof o === 'string') return o;
+      if (o.metric && typeof o.metric === 'string') return { ...o, metric: { metricName: o.metric } };
+      if (o.dimension && typeof o.dimension === 'string') return { ...o, dimension: { dimensionName: o.dimension } };
+      return o;
+    })
+  };
+
   const res = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${pid}:runReport`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(config)
+    body: JSON.stringify(normalized)
   });
   if (!res.ok) {
     const err = await res.json();
@@ -555,26 +572,41 @@ async function sendQuery() {
   try {
     conversationHistory.push({ role: 'user', content: query });
 
-    const systemPrompt = `Eres un analista experto en Google Analytics 4. Interpreta la consulta del usuario y responde ÚNICAMENTE con un JSON válido (sin markdown, sin texto fuera del JSON) con esta estructura:
+    const systemPrompt = `Eres un analista experto en Google Analytics 4. Interpreta la consulta del usuario y responde ÚNICAMENTE con un JSON válido (sin markdown, sin texto fuera del JSON) con esta estructura exacta:
 {
-  "ga4_query": { "dateRanges": [...], "dimensions": [...], "metrics": [...], "orderBys": [...], "limit": N },
-  "viz_type": "metrics" | "bar" | "line" | "table",
-  "viz_title": "título corto del gráfico",
-  "explanation": "frase breve explicando qué muestra y por qué este tipo de visualización"
+  "ga4_query": {
+    "dateRanges": [{"startDate": "YYYY-MM-DD", "endDate": "today"}],
+    "dimensions": ["dim1", "dim2"],
+    "metrics": ["met1"],
+    "limit": 100
+  },
+  "viz_type": "metrics" | "bar" | "line" | "table" | "pivot_table",
+  "pivot_row": "dimensión de filas (solo si pivot_table)",
+  "pivot_col": "dimensión de columnas (solo si pivot_table)",
+  "viz_title": "título corto",
+  "explanation": "frase breve"
 }
 
-Métricas GA4: sessions, screenPageViews, activeUsers, newUsers, bounceRate, averageSessionDuration, conversions, totalRevenue, engagementRate, eventCount
-Dimensiones GA4: pagePath, pageTitle, sessionSource, sessionMedium, sessionCampaignName, deviceCategory, country, city, date, week, month, landingPage, eventName
-IMPORTANTE — Para canales de captación usa SIEMPRE la dimensión: sessionCustomChannelGroup:6356990092 (nunca sessionDefaultChannelGroup ni sessionSource). Los valores posibles son: Direct, Store, Paid Search, Organic Maps, Organic Search, Partnerships, Referral, Unassigned, Organic Social, AI Traffic, Google Cross-Network, Email Marketing.
+DIMENSIONES VÁLIDAS: pagePath, pageTitle, sessionSource, sessionMedium, sessionCampaignName, deviceCategory, country, city, date, yearMonth, week, landingPage, eventName
+MÉTRICAS VÁLIDAS: sessions, screenPageViews, activeUsers, newUsers, bounceRate, averageSessionDuration, engagementRate, eventCount, ecommercePurchases, purchaseRevenue
 
-Reglas:
-- "metrics": solo métricas globales, sin dimensiones
-- "bar": rankings (top páginas, fuentes, campañas) — máx 15 filas
-- "line": evolución temporal — usa dimensión "date" o "week"
-- "table": datos detallados multi-dimensión
+REGLAS CRÍTICAS (incumplirlas causará error en GA4):
+1. dimensions y metrics son SIEMPRE arrays de strings simples: ["yearMonth", "sessions"]
+2. Para mes usa SIEMPRE "yearMonth" — NUNCA "month" ni ninguna variante
+3. Para canales de captación usa SIEMPRE este string exacto: "sessionCustomChannelGroup:6356990092"
+4. Para purchases usa "ecommercePurchases" — NUNCA "conversions"
+5. Para ingresos usa "purchaseRevenue"
+6. NO incluyas "orderBys" en ga4_query
 
-Para comparativas temporales usa dos dateRanges.
-Responde SOLO JSON.`;
+TIPOS DE VISUALIZACIÓN:
+- "metrics": métricas globales sin dimensiones (tarjetas de resumen)
+- "bar": ranking de una dimensión — máx 15 filas
+- "line": evolución temporal — solo "date" o "yearMonth" como dimensión
+- "table": múltiples dimensiones sin pivotar
+- "pivot_table": dos dimensiones cruzadas (ej: canal por mes). En pivot_row pon la dimensión de filas y en pivot_col la de columnas, con el mismo string exacto que usaste en dimensions.
+
+Para comparativas usa dos objetos en dateRanges.
+Responde SOLO JSON, sin markdown.`;
 
     const res = await fetch(CLAUDE_API, {
       method: 'POST',
