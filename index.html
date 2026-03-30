@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GA4 Analytics · Claude</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0e0f11;
+  --surface: #16181c;
+  --surface2: #1e2026;
+  --border: rgba(255,255,255,0.07);
+  --border2: rgba(255,255,255,0.12);
+  --text: #f0f0f0;
+  --muted: #6b7280;
+  --accent: #7c6dfa;
+  --accent2: #a78bfa;
+  --success: #34d399;
+  --danger: #f87171;
+  --warning: #fbbf24;
+  --font: 'DM Sans', sans-serif;
+  --mono: 'DM Mono', monospace;
+}
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+header {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.logo-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+
+#auth-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
+#auth-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+#auth-dot.connected { background: var(--success); box-shadow: 0 0 6px var(--success); }
+
+main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  max-width: 860px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+  gap: 1.5rem;
+}
+
+/* Setup panel */
+#setup-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2rem;
+}
+
+.setup-title {
+  font-size: 18px;
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+}
+
+.setup-desc {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.6;
+  margin-bottom: 1.5rem;
+}
+
+.setup-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+input[type="text"] {
+  flex: 1;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 0 12px;
+  height: 38px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+input[type="text"]::placeholder { color: var(--muted); }
+input[type="text"]:focus { border-color: var(--accent); }
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0 18px;
+  height: 38px;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.2s;
+}
+.btn-primary:hover { opacity: 0.85; }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 0 14px;
+  height: 32px;
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+.btn-ghost:hover { color: var(--text); border-color: var(--border2); }
+
+.setup-note {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 8px;
+  line-height: 1.5;
+}
+
+/* Property row */
+#property-row {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+
+#property-row label { font-size: 12px; color: var(--muted); white-space: nowrap; font-family: var(--mono); }
+#property-input { height: 30px; font-size: 12px; flex: 1; }
+
+/* Suggestions */
+#suggestions {
+  display: none;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 99px;
+  border: 1px solid var(--border2);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: var(--mono);
+}
+.chip:hover { color: var(--text); border-color: var(--accent); background: rgba(124,109,250,0.08); }
+
+/* Chat area */
+#chat-area {
+  display: none;
+  flex-direction: column;
+  gap: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.25rem;
+  min-height: 300px;
+  max-height: 560px;
+  overflow-y: auto;
+}
+
+#chat-area::-webkit-scrollbar { width: 4px; }
+#chat-area::-webkit-scrollbar-track { background: transparent; }
+#chat-area::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+.empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 3rem;
+  text-align: center;
+}
+
+.empty-icon {
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--border2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+  color: var(--muted);
+}
+
+.empty-title { font-size: 14px; font-weight: 500; }
+.empty-sub { font-size: 12px; color: var(--muted); max-width: 300px; line-height: 1.5; }
+
+.msg-user {
+  align-self: flex-end;
+  background: rgba(124,109,250,0.12);
+  border: 1px solid rgba(124,109,250,0.2);
+  border-radius: 12px 12px 4px 12px;
+  padding: 10px 14px;
+  font-size: 14px;
+  max-width: 75%;
+  line-height: 1.5;
+}
+
+.msg-assistant { display: flex; flex-direction: column; gap: 10px; }
+
+.msg-tag {
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--accent2);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.msg-text {
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.msg-loading {
+  font-size: 13px;
+  color: var(--muted);
+  font-style: italic;
+  font-family: var(--mono);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.spinner {
+  width: 14px; height: 14px;
+  border: 1.5px solid var(--border2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Metric grid */
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+}
+
+.metric-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.metric-label {
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--muted);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.metric-value {
+  font-size: 24px;
+  font-weight: 300;
+  letter-spacing: -0.5px;
+}
+
+/* Table */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.data-table th {
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.data-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.data-table tr:last-child td { border-bottom: none; }
+.data-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+.bar-wrap { display: flex; align-items: center; gap: 8px; }
+.bar-bg { flex: 1; height: 4px; background: var(--surface2); border-radius: 2px; max-width: 80px; }
+.bar-fill { height: 4px; background: var(--accent); border-radius: 2px; }
+
+/* Input row */
+#input-row {
+  display: none;
+  gap: 8px;
+}
+
+#query-input {
+  flex: 1;
+  height: 44px;
+  font-size: 14px;
+  border-radius: 10px;
+  font-family: var(--font);
+}
+
+#send-btn {
+  width: 44px; height: 44px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  font-size: 18px;
+}
+
+.chart-wrap {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.chart-title {
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin-bottom: 12px;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-dot"></div>
+    GA4 · Claude Analytics
+  </div>
+  <div id="auth-indicator">
+    <div id="auth-dot"></div>
+    <span id="auth-label">sin conexión</span>
+  </div>
+</header>
+
+<main>
+
+  <div id="setup-panel">
+    <div class="setup-title">Conectar con Google Analytics</div>
+    <p class="setup-desc">Autoriza el acceso a tus datos de GA4 con tu cuenta de Google. Tus datos nunca salen de tu navegador.</p>
+    <div class="setup-row">
+      <input type="text" id="client-id-input" placeholder="Client ID de Google Cloud (xxxxxx.apps.googleusercontent.com)" value="734364773403-r65uer4v13ujrjuosk33s0guha5qt8b8.apps.googleusercontent.com" />
+      <button class="btn-primary" onclick="startAuth()">Conectar con Google</button>
+    </div>
+    <p class="setup-note">Tu Client ID nunca se envía a ningún servidor externo. Solo se usa para autenticarte con Google directamente desde tu navegador.</p>
+  </div>
+
+  <div id="property-row">
+    <label>Property ID de GA4</label>
+    <input type="text" id="property-input" placeholder="Ej: 123456789 (solo números)" />
+    <button class="btn-ghost" onclick="clearAuth()">Cerrar sesión</button>
+  </div>
+
+  <div id="suggestions">
+    <span class="chip" onclick="useSuggestion(this)">Landing pages con más conversiones (90 días)</span>
+    <span class="chip" onclick="useSuggestion(this)">Fuentes de tráfico este mes vs mes anterior</span>
+    <span class="chip" onclick="useSuggestion(this)">Páginas con más rebote esta semana</span>
+    <span class="chip" onclick="useSuggestion(this)">Embudo de conversión por dispositivo</span>
+    <span class="chip" onclick="useSuggestion(this)">Campañas con mejor rendimiento últimos 30 días</span>
+  </div>
+
+  <div id="chat-area">
+    <div class="empty-state" id="empty-state">
+      <div class="empty-icon">◎</div>
+      <div class="empty-title">Listo para analizar</div>
+      <div class="empty-sub">Escribe cualquier consulta sobre tus datos. Claude decidirá qué métricas pedir y cómo visualizarlas.</div>
+    </div>
+  </div>
+
+  <div id="input-row">
+    <input type="text" id="query-input" placeholder="Ej: ¿Qué landing pages convirtieron mejor el último trimestre?" onkeydown="if(event.key==='Enter' && !event.shiftKey) sendQuery()" />
+    <button class="btn-primary" id="send-btn" onclick="sendQuery()">↑</button>
+  </div>
+
+</main>
+
+<script>
+const CLIENT_ID = '734364773403-r65uer4v13ujrjuosk33s0guha5qt8b8.apps.googleusercontent.com';
+const REDIRECT_URI = 'https://smb-locker.github.io/ga4-claude/';
+const SCOPE = 'https://www.googleapis.com/auth/analytics.readonly';
+const CLAUDE_API = 'https://api.anthropic.com/v1/messages';
+
+let accessToken = null;
+let isLoading = false;
+let conversationHistory = [];
+
+function startAuth() {
+  const clientId = document.getElementById('client-id-input').value.trim() || CLIENT_ID;
+  const state = btoa(Math.random().toString(36));
+  sessionStorage.setItem('oauth_state', state);
+  sessionStorage.setItem('oauth_client_id', clientId);
+  const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=token&scope=${encodeURIComponent(SCOPE)}&state=${state}&prompt=consent`;
+  window.location.href = url;
+}
+
+function checkOAuthCallback() {
+  const hash = window.location.hash;
+  if (!hash) return;
+  const params = new URLSearchParams(hash.substring(1));
+  const token = params.get('access_token');
+  const state = params.get('state');
+  const savedState = sessionStorage.getItem('oauth_state');
+  if (token && state === savedState) {
+    accessToken = token;
+    window.history.replaceState({}, document.title, window.location.pathname);
+    sessionStorage.removeItem('oauth_state');
+    showConnected();
+  }
+}
+
+function showConnected() {
+  document.getElementById('setup-panel').style.display = 'none';
+  document.getElementById('property-row').style.display = 'flex';
+  document.getElementById('suggestions').style.display = 'flex';
+  document.getElementById('chat-area').style.display = 'flex';
+  document.getElementById('input-row').style.display = 'flex';
+  document.getElementById('auth-dot').className = 'connected';
+  document.getElementById('auth-label').textContent = 'conectado';
+}
+
+function clearAuth() {
+  accessToken = null;
+  conversationHistory = [];
+  document.getElementById('setup-panel').style.display = 'block';
+  document.getElementById('property-row').style.display = 'none';
+  document.getElementById('suggestions').style.display = 'none';
+  document.getElementById('chat-area').style.display = 'none';
+  document.getElementById('input-row').style.display = 'none';
+  document.getElementById('auth-dot').className = '';
+  document.getElementById('auth-label').textContent = 'sin conexión';
+  const chatArea = document.getElementById('chat-area');
+  chatArea.innerHTML = '<div class="empty-state" id="empty-state"><div class="empty-icon">◎</div><div class="empty-title">Listo para analizar</div><div class="empty-sub">Escribe cualquier consulta sobre tus datos. Claude decidirá qué métricas pedir y cómo visualizarlas.</div></div>';
+}
+
+function useSuggestion(el) {
+  document.getElementById('query-input').value = el.textContent;
+  sendQuery();
+}
+
+async function queryGA4(config) {
+  const pid = document.getElementById('property-input').value.trim();
+  if (!pid) throw new Error('Introduce tu Property ID de GA4 (solo números).');
+  const res = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${pid}:runReport`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(config)
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error?.message || 'Error al consultar GA4.');
+  }
+  return res.json();
+}
+
+async function sendQuery() {
+  if (isLoading || !accessToken) return;
+  const input = document.getElementById('query-input');
+  const query = input.value.trim();
+  if (!query) return;
+  input.value = '';
+  isLoading = true;
+  document.getElementById('send-btn').textContent = '…';
+
+  const chatArea = document.getElementById('chat-area');
+  const emptyState = document.getElementById('empty-state');
+  if (emptyState) emptyState.remove();
+
+  appendUserMsg(query);
+  const loadingEl = appendLoadingMsg();
+
+  try {
+    conversationHistory.push({ role: 'user', content: query });
+
+    const systemPrompt = `Eres un analista experto en Google Analytics 4. Interpreta la consulta del usuario y responde ÚNICAMENTE con un JSON válido (sin markdown, sin texto fuera del JSON) con esta estructura:
+{
+  "ga4_query": { "dateRanges": [...], "dimensions": [...], "metrics": [...], "orderBys": [...], "limit": N },
+  "viz_type": "metrics" | "bar" | "line" | "table",
+  "viz_title": "título corto del gráfico",
+  "explanation": "frase breve explicando qué muestra y por qué este tipo de visualización"
+}
+
+Métricas GA4: sessions, screenPageViews, activeUsers, newUsers, bounceRate, averageSessionDuration, conversions, totalRevenue, engagementRate, eventCount
+Dimensiones GA4: pagePath, pageTitle, sessionSource, sessionMedium, sessionCampaignName, deviceCategory, country, city, date, week, month, landingPage, eventName
+
+Reglas:
+- "metrics": solo métricas globales, sin dimensiones
+- "bar": rankings (top páginas, fuentes, campañas) — máx 15 filas
+- "line": evolución temporal — usa dimensión "date" o "week"
+- "table": datos detallados multi-dimensión
+
+Para comparativas temporales usa dos dateRanges.
+Responde SOLO JSON.`;
+
+    const res = await fetch(CLAUDE_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        system: systemPrompt,
+        messages: conversationHistory
+      })
+    });
+
+    const data = await res.json();
+    const rawText = data.content?.[0]?.text || '';
+    let parsed;
+    try {
+      parsed = JSON.parse(rawText.replace(/```json|```/g, '').trim());
+    } catch {
+      throw new Error('No se pudo interpretar la consulta. Intenta reformularla con más detalle.');
+    }
+
+    conversationHistory.push({ role: 'assistant', content: rawText });
+
+    const gaData = await queryGA4(parsed.ga4_query);
+    loadingEl.remove();
+    renderResult(parsed, gaData);
+
+  } catch (err) {
+    loadingEl.remove();
+    appendErrorMsg(err.message);
+    if (conversationHistory[conversationHistory.length - 1]?.role === 'user') {
+      conversationHistory.pop();
+    }
+  }
+
+  isLoading = false;
+  document.getElementById('send-btn').textContent = '↑';
+}
+
+function appendUserMsg(text) {
+  const chatArea = document.getElementById('chat-area');
+  const el = document.createElement('div');
+  el.className = 'msg-user';
+  el.textContent = text;
+  chatArea.appendChild(el);
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function appendLoadingMsg() {
+  const chatArea = document.getElementById('chat-area');
+  const el = document.createElement('div');
+  el.className = 'msg-assistant';
+  el.innerHTML = '<div class="msg-tag">GA4 · Claude</div><div class="msg-loading"><div class="spinner"></div>Analizando consulta y obteniendo datos…</div>';
+  chatArea.appendChild(el);
+  chatArea.scrollTop = chatArea.scrollHeight;
+  return el;
+}
+
+function appendErrorMsg(text) {
+  const chatArea = document.getElementById('chat-area');
+  const el = document.createElement('div');
+  el.className = 'msg-assistant';
+  el.innerHTML = `<div class="msg-tag">GA4 · Claude</div><div class="msg-text" style="color:var(--danger);">Error: ${text}</div>`;
+  chatArea.appendChild(el);
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function renderResult(parsed, gaData) {
+  const chatArea = document.getElementById('chat-area');
+  const wrapper = document.createElement('div');
+  wrapper.className = 'msg-assistant';
+
+  const tag = document.createElement('div');
+  tag.className = 'msg-tag';
+  tag.textContent = 'GA4 · Claude';
+  wrapper.appendChild(tag);
+
+  if (parsed.explanation) {
+    const exp = document.createElement('div');
+    exp.className = 'msg-text';
+    exp.textContent = parsed.explanation;
+    wrapper.appendChild(exp);
+  }
+
+  const rows = gaData.rows || [];
+  const dimHeaders = (gaData.dimensionHeaders || []).map(h => h.name);
+  const metHeaders = (gaData.metricHeaders || []).map(h => h.name);
+
+  if (!rows.length) {
+    const nd = document.createElement('div');
+    nd.className = 'msg-text';
+    nd.style.color = 'var(--muted)';
+    nd.textContent = 'Sin datos para el período seleccionado.';
+    wrapper.appendChild(nd);
+    chatArea.appendChild(wrapper);
+    chatArea.scrollTop = chatArea.scrollHeight;
+    return;
+  }
+
+  if (parsed.viz_type === 'metrics') {
+    const grid = document.createElement('div');
+    grid.className = 'metric-grid';
+    metHeaders.forEach((met, i) => {
+      const card = document.createElement('div');
+      card.className = 'metric-card';
+      const raw = rows[0]?.metricValues?.[i]?.value || '0';
+      const val = parseFloat(raw);
+      const fmt = isNaN(val) ? raw : val.toLocaleString('es-ES', { maximumFractionDigits: 2 });
+      card.innerHTML = `<div class="metric-label">${met}</div><div class="metric-value">${fmt}</div>`;
+      grid.appendChild(card);
+    });
+    wrapper.appendChild(grid);
+
+  } else if (parsed.viz_type === 'bar' || parsed.viz_type === 'line') {
+    const wrap = document.createElement('div');
+    wrap.className = 'chart-wrap';
+    if (parsed.viz_title) {
+      const title = document.createElement('div');
+      title.className = 'chart-title';
+      title.textContent = parsed.viz_title;
+      wrap.appendChild(title);
+    }
+    const canvas = document.createElement('canvas');
+    canvas.style.maxHeight = '280px';
+    wrap.appendChild(canvas);
+    wrapper.appendChild(wrap);
+
+    const labels = rows.map(r => {
+      const v = r.dimensionValues?.[0]?.value || '';
+      return v.length > 30 ? v.substring(0, 28) + '…' : v;
+    });
+    const values = rows.map(r => parseFloat(r.metricValues?.[0]?.value || 0));
+
+    Chart.defaults.color = '#6b7280';
+    Chart.defaults.borderColor = 'rgba(255,255,255,0.06)';
+
+    new Chart(canvas, {
+      type: parsed.viz_type === 'line' ? 'line' : 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: metHeaders[0] || '',
+          data: values,
+          backgroundColor: parsed.viz_type === 'bar' ? 'rgba(124,109,250,0.7)' : 'rgba(124,109,250,0.1)',
+          borderColor: '#7c6dfa',
+          borderWidth: parsed.viz_type === 'line' ? 2 : 0,
+          borderRadius: parsed.viz_type === 'bar' ? 4 : 0,
+          tension: 0.4,
+          fill: parsed.viz_type === 'line',
+          pointRadius: parsed.viz_type === 'line' ? 3 : 0,
+          pointBackgroundColor: '#a78bfa',
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#1e2026',
+            borderColor: 'rgba(255,255,255,0.1)',
+            borderWidth: 1,
+            titleColor: '#f0f0f0',
+            bodyColor: '#6b7280',
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { font: { family: "'DM Mono', monospace", size: 10 }, maxRotation: 35 }
+          },
+          y: {
+            grid: { color: 'rgba(255,255,255,0.04)' },
+            ticks: { font: { family: "'DM Mono', monospace", size: 10 } }
+          }
+        }
+      }
+    });
+
+  } else {
+    const table = document.createElement('table');
+    table.className = 'data-table';
+    const thead = document.createElement('thead');
+    const hr = document.createElement('tr');
+    [...dimHeaders, ...metHeaders].forEach(h => {
+      const th = document.createElement('th');
+      th.textContent = h;
+      hr.appendChild(th);
+    });
+    thead.appendChild(hr);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    const maxVal = Math.max(...rows.map(r => parseFloat(r.metricValues?.[0]?.value || 0)));
+
+    rows.forEach(row => {
+      const tr = document.createElement('tr');
+      (row.dimensionValues || []).forEach(dv => {
+        const td = document.createElement('td');
+        const v = dv.value || '';
+        td.textContent = v.length > 40 ? v.substring(0, 38) + '…' : v;
+        tr.appendChild(td);
+      });
+      (row.metricValues || []).forEach((mv, i) => {
+        const td = document.createElement('td');
+        const val = parseFloat(mv.value);
+        const fmt = isNaN(val) ? mv.value : val.toLocaleString('es-ES', { maximumFractionDigits: 2 });
+        if (i === 0 && maxVal > 0) {
+          const pct = Math.round((val / maxVal) * 100);
+          td.innerHTML = `<div class="bar-wrap"><div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div><span>${fmt}</span></div>`;
+        } else {
+          td.textContent = fmt;
+        }
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    wrapper.appendChild(table);
+  }
+
+  chatArea.appendChild(wrapper);
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+checkOAuthCallback();
+</script>
+</body>
+</html>
