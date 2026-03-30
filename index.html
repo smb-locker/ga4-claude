@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -490,6 +491,8 @@ function showConnected() {
   document.getElementById('input-row').style.display = 'flex';
   document.getElementById('auth-dot').className = 'connected';
   document.getElementById('auth-label').textContent = 'conectado';
+  const savedPid = localStorage.getItem('ga4_property_id');
+  if (savedPid) document.getElementById('property-input').value = savedPid;
 }
 
 function clearAuth() {
@@ -505,6 +508,13 @@ function clearAuth() {
   const chatArea = document.getElementById('chat-area');
   chatArea.innerHTML = '<div class="empty-state" id="empty-state"><div class="empty-icon">◎</div><div class="empty-title">Listo para analizar</div><div class="empty-sub">Escribe cualquier consulta sobre tus datos. Claude decidirá qué métricas pedir y cómo visualizarlas.</div></div>';
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+  const pi = document.getElementById('property-input');
+  if (pi) pi.addEventListener('input', () => {
+    localStorage.setItem('ga4_property_id', pi.value.trim());
+  });
+});
 
 function useSuggestion(el) {
   document.getElementById('query-input').value = el.textContent;
