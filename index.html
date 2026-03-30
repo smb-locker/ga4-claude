@@ -565,6 +565,7 @@ async function sendQuery() {
 
 Métricas GA4: sessions, screenPageViews, activeUsers, newUsers, bounceRate, averageSessionDuration, conversions, totalRevenue, engagementRate, eventCount
 Dimensiones GA4: pagePath, pageTitle, sessionSource, sessionMedium, sessionCampaignName, deviceCategory, country, city, date, week, month, landingPage, eventName
+IMPORTANTE — Para canales de captación usa SIEMPRE la dimensión: sessionCustomChannelGroup:6356990092 (nunca sessionDefaultChannelGroup ni sessionSource). Los valores posibles son: Direct, Store, Paid Search, Organic Maps, Organic Search, Partnerships, Referral, Unassigned, Organic Social, AI Traffic, Google Cross-Network, Email Marketing.
 
 Reglas:
 - "metrics": solo métricas globales, sin dimensiones
@@ -673,7 +674,124 @@ function renderResult(parsed, gaData) {
     return;
   }
 
-  if (parsed.viz_type === 'metrics') {
+  if (parsed.viz_type === 'pivot_table' && parsed.pivot_row && parsed.pivot_col) {
+    const rowDimIdx = dimHeaders.indexOf(parsed.pivot_row);
+    const colDimIdx = dimHeaders.indexOf(parsed.pivot_col);
+    const metIdx = 0;
+
+    // Build pivot structure
+    const rowsSet = [...new Set(rows.map(r => r.dimensionValues?.[rowDimIdx]?.value || ''))].sort();
+    const colsSet = [...new Set(rows.map(r => r.dimensionValues?.[colDimIdx]?.value || ''))].sort();
+
+    // Map: row -> col -> value
+    const pivot = {};
+    rows.forEach(r => {
+      const rk = r.dimensionValues?.[rowDimIdx]?.value || '';
+      const ck = r.dimensionValues?.[colDimIdx]?.value || '';
+      const val = parseFloat(r.metricValues?.[metIdx]?.value || 0);
+      if (!pivot[rk]) pivot[rk] = {};
+      pivot[rk][ck] = val;
+    });
+
+    // Compute row totals for each column (for % if needed)
+    const colTotals = {};
+    colsSet.forEach(c => {
+      colTotals[c] = rowsSet.reduce((sum, r) => sum + (pivot[r]?.[c] || 0), 0);
+    });
+
+    const table = document.createElement('table');
+    table.className = 'data-table';
+    table.style.fontSize = '12px';
+
+    // Header
+    const thead = document.createElement('thead');
+    const hr = document.createElement('tr');
+    const thEmpty = document.createElement('th');
+    thEmpty.textContent = parsed.pivot_row;
+    hr.appendChild(thEmpty);
+    colsSet.forEach(c => {
+      const th = document.createElement('th');
+      th.textContent = c.length > 18 ? c.substring(0, 16) + '…' : c;
+      th.style.textAlign = 'right';
+      hr.appendChild(th);
+    });
+    const thTotal = document.createElement('th');
+    thTotal.textContent = 'Total';
+    thTotal.style.textAlign = 'right';
+    hr.appendChild(thTotal);
+    thead.appendChild(hr);
+    table.appendChild(thead);
+
+    // Body
+    const tbody = document.createElement('tbody');
+    rowsSet.forEach(rowKey => {
+      const tr = document.createElement('tr');
+      const tdLabel = document.createElement('td');
+      tdLabel.textContent = rowKey;
+      tdLabel.style.fontFamily = 'var(--mono)';
+      tdLabel.style.fontSize = '11px';
+      tr.appendChild(tdLabel);
+
+      let rowTotal = 0;
+      colsSet.forEach(colKey => {
+        const val = pivot[rowKey]?.[colKey] || 0;
+        rowTotal += val;
+        const td = document.createElement('td');
+        td.style.textAlign = 'right';
+        td.style.fontFamily = 'var(--mono)';
+        const fmt = isNaN(val) ? '-' : val.toLocaleString('es-ES', { maximumFractionDigits: 2 });
+        td.textContent = val === 0 ? '—' : fmt;
+        tr.appendChild(td);
+      });
+
+      const tdTotal = document.createElement('td');
+      tdTotal.style.textAlign = 'right';
+      tdTotal.style.fontFamily = 'var(--mono)';
+      tdTotal.style.color = 'var(--accent2)';
+      tdTotal.style.fontWeight = '500';
+      tdTotal.textContent = rowTotal.toLocaleString('es-ES', { maximumFractionDigits: 2 });
+      tr.appendChild(tdTotal);
+
+      tbody.appendChild(tr);
+    });
+
+    // Totals row
+    const trTotals = document.createElement('tr');
+    trTotals.style.borderTop = '1px solid var(--border2)';
+    const tdTotalLabel = document.createElement('td');
+    tdTotalLabel.textContent = 'Total';
+    tdTotalLabel.style.fontWeight = '500';
+    tdTotalLabel.style.color = 'var(--accent2)';
+    trTotals.appendChild(tdTotalLabel);
+    let grandTotal = 0;
+    colsSet.forEach(c => {
+      const td = document.createElement('td');
+      td.style.textAlign = 'right';
+      td.style.fontFamily = 'var(--mono)';
+      td.style.fontWeight = '500';
+      td.style.color = 'var(--accent2)';
+      const t = colTotals[c] || 0;
+      grandTotal += t;
+      td.textContent = t.toLocaleString('es-ES', { maximumFractionDigits: 2 });
+      trTotals.appendChild(td);
+    });
+    const tdGrand = document.createElement('td');
+    tdGrand.style.textAlign = 'right';
+    tdGrand.style.fontFamily = 'var(--mono)';
+    tdGrand.style.fontWeight = '500';
+    tdGrand.style.color = 'var(--accent2)';
+    tdGrand.textContent = grandTotal.toLocaleString('es-ES', { maximumFractionDigits: 2 });
+    trTotals.appendChild(tdGrand);
+    tbody.appendChild(trTotals);
+
+    table.appendChild(tbody);
+
+    const tableWrap = document.createElement('div');
+    tableWrap.style.overflowX = 'auto';
+    tableWrap.appendChild(table);
+    wrapper.appendChild(tableWrap);
+
+  } else if (parsed.viz_type === 'metrics') {
     const grid = document.createElement('div');
     grid.className = 'metric-grid';
     metHeaders.forEach((met, i) => {
