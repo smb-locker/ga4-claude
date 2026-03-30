@@ -572,17 +572,27 @@ async function sendQuery() {
   try {
     conversationHistory.push({ role: 'user', content: query });
 
-    const systemPrompt = `Eres un analista experto en Google Analytics 4. Interpreta la consulta del usuario y responde ÚNICAMENTE con un JSON válido (sin markdown, sin texto fuera del JSON) con esta estructura exacta:
+    const systemPrompt = `Eres un analista experto en Google Analytics 4. Interpreta la consulta del usuario y responde ÚNICAMENTE con un JSON válido (sin markdown, sin texto fuera del JSON).
+
+ESTRUCTURA DEL JSON:
 {
   "ga4_query": {
     "dateRanges": [{"startDate": "YYYY-MM-DD", "endDate": "today"}],
     "dimensions": ["dim1", "dim2"],
-    "metrics": ["met1"],
+    "metrics": ["met1", "met2"],
     "limit": 100
   },
   "viz_type": "metrics" | "bar" | "line" | "table" | "pivot_table",
   "pivot_row": "dimensión de filas (solo si pivot_table)",
   "pivot_col": "dimensión de columnas (solo si pivot_table)",
+  "computed_metrics": [
+    {
+      "name": "nombre legible del campo calculado",
+      "formula": "expresión JS usando variables: val (valor celda), rowTotal, colTotal, grandTotal, metricValues (array de métricas de esa fila)",
+      "format": "percent" | "number" | "currency",
+      "decimals": 1
+    }
+  ],
   "viz_title": "título corto",
   "explanation": "frase breve"
 }
@@ -593,17 +603,37 @@ MÉTRICAS VÁLIDAS: sessions, screenPageViews, activeUsers, newUsers, bounceRate
 REGLAS CRÍTICAS (incumplirlas causará error en GA4):
 1. dimensions y metrics son SIEMPRE arrays de strings simples: ["yearMonth", "sessions"]
 2. Para mes usa SIEMPRE "yearMonth" — NUNCA "month" ni ninguna variante
-3. Para canales de captación usa SIEMPRE este string exacto: "sessionCustomChannelGroup:6356990092"
+3. Para canales de captación usa SIEMPRE: "sessionCustomChannelGroup:6356990092"
 4. Para purchases usa "ecommercePurchases" — NUNCA "conversions"
 5. Para ingresos usa "purchaseRevenue"
 6. NO incluyas "orderBys" en ga4_query
 
+COMPUTED METRICS — úsalas siempre que el usuario pida porcentajes, ratios, promedios u otras fórmulas:
+Las fórmulas son expresiones JavaScript. Variables disponibles:
+- val: valor absoluto de la métrica principal de esa celda
+- rowTotal: suma de la métrica en toda la fila (pivot) o valor de otra métrica en esa fila (table)
+- colTotal: suma de la métrica en toda la columna (pivot)
+- grandTotal: suma total de todos los valores
+- metricValues: array con todos los valores de métricas de esa fila [{name, value}]
+- Para acceder a otra métrica: metricValues.find(m=>m.name==='sessions')?.value || 0
+
+Ejemplos de fórmulas:
+- % sobre fila: "val / rowTotal * 100"
+- % sobre columna: "val / colTotal * 100"  
+- % sobre total: "val / grandTotal * 100"
+- Tasa de conversión: "metricValues.find(m=>m.name==='ecommercePurchases')?.value / metricValues.find(m=>m.name==='sessions')?.value * 100"
+- Ticket medio: "metricValues.find(m=>m.name==='purchaseRevenue')?.value / metricValues.find(m=>m.name==='ecommercePurchases')?.value"
+- Ratio: "val / rowTotal"
+
+Si el usuario NO pide fórmulas, devuelve computed_metrics como array vacío [].
+Para pivot_table, si pide %, incluye la computed_metric con la fórmula adecuada.
+
 TIPOS DE VISUALIZACIÓN:
-- "metrics": métricas globales sin dimensiones (tarjetas de resumen)
+- "metrics": métricas globales sin dimensiones (tarjetas)
 - "bar": ranking de una dimensión — máx 15 filas
-- "line": evolución temporal — solo "date" o "yearMonth" como dimensión
-- "table": múltiples dimensiones sin pivotar
-- "pivot_table": dos dimensiones cruzadas (ej: canal por mes). En pivot_row pon la dimensión de filas y en pivot_col la de columnas, con el mismo string exacto que usaste en dimensions.
+- "line": evolución temporal — solo "date" o "yearMonth"
+- "table": múltiples dimensiones — puede tener computed_metrics
+- "pivot_table": dos dimensiones cruzadas — puede tener computed_metrics
 
 Para comparativas usa dos objetos en dateRanges.
 Responde SOLO JSON, sin markdown.`;
@@ -674,6 +704,21 @@ function appendErrorMsg(text) {
   chatArea.scrollTop = chatArea.scrollHeight;
 }
 
+function evalTableFormula(formula, val, rowTotal, metricValues) {
+  try {
+    return Function('val','rowTotal','colTotal','grandTotal','metricValues',
+      'return (' + formula + ')'
+    )(val, rowTotal, 0, 0, metricValues);
+  } catch { return null; }
+}
+function applyTableFormat(val, cm) {
+  if (val === null || isNaN(val)) return '—';
+  const dec = cm.decimals ?? 1;
+  if (cm.format === 'percent') return val.toFixed(dec) + '%';
+  if (cm.format === 'currency') return val.toLocaleString('es-ES',{minimumFractionDigits:dec,maximumFractionDigits:dec}) + ' €';
+  return val.toLocaleString('es-ES', {maximumFractionDigits: dec});
+}
+
 function renderResult(parsed, gaData) {
   const chatArea = document.getElementById('chat-area');
   const wrapper = document.createElement('div');
@@ -725,11 +770,53 @@ function renderResult(parsed, gaData) {
       pivot[rk][ck] = val;
     });
 
-    // Compute row totals for each column (for % if needed)
+    // Compute totals
     const colTotals = {};
     colsSet.forEach(c => {
       colTotals[c] = rowsSet.reduce((sum, r) => sum + (pivot[r]?.[c] || 0), 0);
     });
+    const rowTotals = {};
+    rowsSet.forEach(r => {
+      rowTotals[r] = colsSet.reduce((sum, c) => sum + (pivot[r]?.[c] || 0), 0);
+    });
+
+    const computedMetrics = parsed.computed_metrics || [];
+    const grandTotal = rowsSet.reduce((s, r) => s + (rowTotals[r] || 0), 0);
+
+    // Format a value according to computed metric spec
+    const applyFormat = (val, cm) => {
+      if (val === null || isNaN(val)) return '—';
+      const dec = cm.decimals ?? 1;
+      if (cm.format === 'percent') return val.toFixed(dec) + '%';
+      if (cm.format === 'currency') return val.toLocaleString('es-ES', {minimumFractionDigits: dec, maximumFractionDigits: dec}) + ' €';
+      return val.toLocaleString('es-ES', {maximumFractionDigits: dec});
+    };
+
+    // Evaluate a computed metric formula for a pivot cell
+    const evalFormula = (formula, val, rowKey, colKey, metricValuesArr) => {
+      try {
+        const rowTotal = rowTotals[rowKey] || 0;
+        const colTotal = colTotals[colKey] || 0;
+        const metricValues = metricValuesArr;
+        // eslint-disable-next-line no-new-func
+        return Function('val','rowTotal','colTotal','grandTotal','metricValues',
+          'return (' + formula + ')'
+        )(val, rowTotal, colTotal, grandTotal, metricValues);
+      } catch { return null; }
+    };
+
+    // Helper: format a plain absolute cell value
+    const fmtAbs = (val) => val === 0 ? '—' : val.toLocaleString('es-ES', { maximumFractionDigits: 2 });
+
+    // Decide cell display: if computed_metrics defined, show computed; else show absolute
+    const fmtCell = (val, rowKey, colKey, metricValuesArr) => {
+      if (computedMetrics.length > 0) {
+        const cm = computedMetrics[0];
+        const computed = evalFormula(cm.formula, val, rowKey, colKey, metricValuesArr);
+        return computed !== null ? applyFormat(computed, cm) : '—';
+      }
+      return fmtAbs(val);
+    };
 
     const table = document.createElement('table');
     table.className = 'data-table';
@@ -771,8 +858,7 @@ function renderResult(parsed, gaData) {
         const td = document.createElement('td');
         td.style.textAlign = 'right';
         td.style.fontFamily = 'var(--mono)';
-        const fmt = isNaN(val) ? '-' : val.toLocaleString('es-ES', { maximumFractionDigits: 2 });
-        td.textContent = val === 0 ? '—' : fmt;
+        td.textContent = fmtCell(val, rowKey, colKey, []);
         tr.appendChild(td);
       });
 
@@ -781,7 +867,16 @@ function renderResult(parsed, gaData) {
       tdTotal.style.fontFamily = 'var(--mono)';
       tdTotal.style.color = 'var(--accent2)';
       tdTotal.style.fontWeight = '500';
-      tdTotal.textContent = rowTotal.toLocaleString('es-ES', { maximumFractionDigits: 2 });
+      // Total column
+      if (computedMetrics.length > 0 && computedMetrics[0].format === 'percent' && computedMetrics[0].formula.includes('rowTotal')) {
+        tdTotal.textContent = rowTotal > 0 ? '100%' : '—';
+      } else if (computedMetrics.length > 0) {
+        const cm = computedMetrics[0];
+        const computed = evalFormula(cm.formula, rowTotal, rowKey, '__total__', []);
+        tdTotal.textContent = computed !== null ? applyFormat(computed, cm) : fmtAbs(rowTotal);
+      } else {
+        tdTotal.textContent = rowTotal.toLocaleString('es-ES', { maximumFractionDigits: 2 });
+      }
       tr.appendChild(tdTotal);
 
       tbody.appendChild(tr);
@@ -795,7 +890,7 @@ function renderResult(parsed, gaData) {
     tdTotalLabel.style.fontWeight = '500';
     tdTotalLabel.style.color = 'var(--accent2)';
     trTotals.appendChild(tdTotalLabel);
-    let grandTotal = 0;
+    let grandTotalSum = 0;
     colsSet.forEach(c => {
       const td = document.createElement('td');
       td.style.textAlign = 'right';
@@ -803,7 +898,7 @@ function renderResult(parsed, gaData) {
       td.style.fontWeight = '500';
       td.style.color = 'var(--accent2)';
       const t = colTotals[c] || 0;
-      grandTotal += t;
+      grandTotalSum += t;
       td.textContent = t.toLocaleString('es-ES', { maximumFractionDigits: 2 });
       trTotals.appendChild(td);
     });
@@ -812,7 +907,7 @@ function renderResult(parsed, gaData) {
     tdGrand.style.fontFamily = 'var(--mono)';
     tdGrand.style.fontWeight = '500';
     tdGrand.style.color = 'var(--accent2)';
-    tdGrand.textContent = grandTotal.toLocaleString('es-ES', { maximumFractionDigits: 2 });
+    tdGrand.textContent = grandTotalSum.toLocaleString('es-ES', { maximumFractionDigits: 2 });
     trTotals.appendChild(tdGrand);
     tbody.appendChild(trTotals);
 
@@ -927,15 +1022,29 @@ function renderResult(parsed, gaData) {
         td.textContent = v.length > 40 ? v.substring(0, 38) + '…' : v;
         tr.appendChild(td);
       });
+      const rowMetricValues = (row.metricValues || []).map((mv, i) => ({
+        name: metHeaders[i] || String(i),
+        value: parseFloat(mv.value) || 0
+      }));
+      const tableComputedMetrics = parsed.computed_metrics || [];
+
       (row.metricValues || []).forEach((mv, i) => {
         const td = document.createElement('td');
         const val = parseFloat(mv.value);
-        const fmt = isNaN(val) ? mv.value : val.toLocaleString('es-ES', { maximumFractionDigits: 2 });
-        if (i === 0 && maxVal > 0) {
-          const pct = Math.round((val / maxVal) * 100);
-          td.innerHTML = `<div class="bar-wrap"><div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div><span>${fmt}</span></div>`;
+        let displayVal;
+        if (tableComputedMetrics[i]) {
+          const cm = tableComputedMetrics[i];
+          const rowT = rowMetricValues.reduce((s,m)=>s+m.value,0);
+          const computed = evalTableFormula(cm.formula, val, rowT, rowMetricValues);
+          displayVal = computed !== null ? applyTableFormat(computed, cm) : val.toLocaleString('es-ES',{maximumFractionDigits:2});
         } else {
-          td.textContent = fmt;
+          displayVal = isNaN(val) ? mv.value : val.toLocaleString('es-ES', { maximumFractionDigits: 2 });
+        }
+        if (i === 0 && maxVal > 0 && tableComputedMetrics.length === 0) {
+          const pct = Math.round((val / maxVal) * 100);
+          td.innerHTML = `<div class="bar-wrap"><div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div><span>${displayVal}</span></div>`;
+        } else {
+          td.textContent = displayVal;
         }
         tr.appendChild(td);
       });
